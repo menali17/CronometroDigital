@@ -4,137 +4,126 @@ use IEEE.NUMERIC_STD.ALL;
 
 entity cronometro is
     Port (
-        clk           : in STD_LOGIC;
-        rst           : in STD_LOGIC;
-        --start_stop    : in STD_LOGIC;
-        display       : out STD_LOGIC_VECTOR(6 downto 0);
-        anode         : out STD_LOGIC_VECTOR(2 downto 0);
-        btn_debounced : in STD_LOGIC -- Adicionado filtro para bouncing
+        CLK    : in  STD_LOGIC;
+        RESET  : in  STD_LOGIC;
+        START_STOP : in STD_LOGIC;
+        DISP_SEG : out STD_LOGIC_VECTOR(7 downto 0); -- segmentos com lógica invertida (a-g + DP)
+        DISP_SEL : out STD_LOGIC_VECTOR(2 downto 0)  -- seleção dos anodos (3 displays)
     );
 end cronometro;
 
 architecture Behavioral of cronometro is
-    signal clk_div          : unsigned(25 downto 0) := (others => '0');
-    signal mux_clk_div      : unsigned(15 downto 0) := (others => '0');
-    signal one_sec_pulse    : STD_LOGIC := '0';
-    signal mux_pulse        : STD_LOGIC := '0';
-    signal seconds          : integer range 0 to 59 := 0;
-    signal minutes          : integer range 0 to 9 := 0;
-    signal running          : STD_LOGIC := '0';
-    signal anode_sel        : integer range 0 to 2 := 0;
-    signal digit_value      : integer range 0 to 9 := 0;
 
-    -- Novo sinal para detectar borda de descida do botão
-    signal btn_last_state   : STD_LOGIC := '1';
-    signal btn_edge_detected : STD_LOGIC := '0';
+    signal clk_div : unsigned(25 downto 0) := (others => '0');
+    signal one_hz  : STD_LOGIC := '0';
+
+    signal running : STD_LOGIC := '0';
+    signal seconds : integer range 0 to 59 := 0;
+    signal minutes : integer range 0 to 9 := 0;
+
+    signal mux_count : unsigned(15 downto 0) := (others => '0');
+    signal mux_sel   : integer range 0 to 2 := 0;
+
+    signal digit_val : std_logic_vector(3 downto 0);
+    signal seg_out   : std_logic_vector(7 downto 0);
+
+    -- Botão debouncing simples
+    signal btn_last : STD_LOGIC := '1';
 
 begin
 
-    -- Processo para detecção de borda de descida do botão
-    process (clk)
+    -- Divisor de clock para gerar 1Hz (aproximado)
+    process(CLK)
     begin
-        if rising_edge(clk) then
-            btn_edge_detected <= '0'; -- Reseta o sinal a cada ciclo
-            if btn_last_state = '1' and btn_debounced = '0' then
-                btn_edge_detected <= '1'; -- Detecta borda de descida
-            end if;
-            btn_last_state <= btn_debounced; -- Atualiza o estado anterior
-        end if;
-    end process;
-
-    -- Divisor de clock para 1 segundo
-    process (clk)
-    begin
-        if rising_edge(clk) then
-            if clk_div = 49999999 then
+        if rising_edge(CLK) then
+            clk_div <= clk_div + 1;
+            if clk_div = 25_000_000 then
+                one_hz <= '1';
                 clk_div <= (others => '0');
-                one_sec_pulse <= '1';
             else
-                clk_div <= clk_div + 1;
-                one_sec_pulse <= '0';
+                one_hz <= '0';
             end if;
         end if;
     end process;
 
-    -- Divisor de clock para multiplexação dos displays (~1kHz)
-    process (clk)
+    -- Controle de Start/Stop por borda de descida
+    process(CLK)
     begin
-        if rising_edge(clk) then
-            if mux_clk_div = 50000 then
-                mux_clk_div 	<= (others => '0');
-                mux_pulse 		<= '1';
-            else
-                mux_clk_div 	<= mux_clk_div + 1;
-                mux_pulse 		<= '0';
+        if rising_edge(CLK) then
+            if START_STOP = '0' and btn_last = '1' then
+                running <= not running;
             end if;
-        end if;
-    end process;
+            btn_last <= START_STOP;
 
-    -- Contador de minutos e segundos
-    process (clk)
-    begin
-        if rising_edge(clk) then
-            if rst = '0' then  -- Reset ativo baixo
+            if RESET = '0' then
                 seconds <= 0;
                 minutes <= 0;
                 running <= '0';
-            elsif btn_edge_detected = '1' then -- Usa o novo sinal para alternar `running`
-                running <= not running;
-            end if;
-            
-            if one_sec_pulse = '1' and running = '1' then
-                if seconds = 59 then
+            elsif one_hz = '1' and running = '1' then
+                seconds <= seconds + 1;
+                if seconds = 60 then
                     seconds <= 0;
-                    if minutes < 9 then
-                        minutes <= minutes + 1;
+                    minutes <= minutes + 1;
+                    if minutes = 10 then
+                        minutes <= 0;
                     end if;
-                else
-                    seconds <= seconds + 1;
                 end if;
             end if;
         end if;
     end process;
 
     -- Multiplexação dos displays
-    process (clk)
+    process(CLK)
     begin
-        if rising_edge(clk) then
-            if mux_pulse = '1' then
-                anode_sel <= (anode_sel + 1) mod 3;
+        if rising_edge(CLK) then
+            mux_count <= mux_count + 1;
+            if mux_count = 50_000 then
+                mux_count <= (others => '0');
+                mux_sel <= (mux_sel + 1) mod 3;
             end if;
         end if;
     end process;
-    
-    anode <= "110" when anode_sel = 0 else
-             "101" when anode_sel = 1 else
-             "011";
 
-    -- Seleção do valor a ser exibido
-    process (anode_sel, seconds, minutes)
+    -- Seleção dos dígitos
+    process(mux_sel, minutes, seconds)
     begin
-        case anode_sel is
-            when 0 => digit_value <= minutes;
-            when 1 => digit_value <= seconds / 10;
-            when 2 => digit_value <= seconds mod 10;
-            when others => digit_value <= 0;
+        case mux_sel is
+            when 0 => digit_val <= std_logic_vector(to_unsigned(seconds mod 10, 4));  -- Unidade dos segundos
+            when 1 => digit_val <= std_logic_vector(to_unsigned(seconds / 10, 4));    -- Dezena dos segundos
+            when 2 => digit_val <= std_logic_vector(to_unsigned(minutes, 4));         -- Minutos
+            when others => digit_val <= "0000";
         end case;
     end process;
 
-    -- Decodificador para display de 7 segmentos
-    process (digit_value)
+    -- Decodificador BCD para 7 segmentos com lógica invertida
+    process(digit_val)
     begin
-        case digit_value is
-            when 0 => display <= not "1111110";
-            when 1 => display <= not "0110000";
-            when 2 => display <= not "1101101";
-            when 3 => display <= not "1111001";
-            when 4 => display <= not "0110011";
-            when 5 => display <= not "1011011";
-            when 6 => display <= not "1011111";
-            when 7 => display <= not "1110000";
-            when 8 => display <= not "1111111";
-            when 9 => display <= not "1111011";
-            when others => display <= "0000000";
+        case digit_val is
+            when "0000" => seg_out <= "11000000"; -- 0
+            when "0001" => seg_out <= "11111001"; -- 1
+            when "0010" => seg_out <= "10100100"; -- 2
+            when "0011" => seg_out <= "10110000"; -- 3
+            when "0100" => seg_out <= "10011001"; -- 4
+            when "0101" => seg_out <= "10010010"; -- 5
+            when "0110" => seg_out <= "10000010"; -- 6
+            when "0111" => seg_out <= "11111000"; -- 7
+            when "1000" => seg_out <= "10000000"; -- 8
+            when "1001" => seg_out <= "10010000"; -- 9
+            when others => seg_out <= "11111111"; -- Apagar tudo
+        end case;
+    end process;
+
+    -- Saídas de segmentos
+    DISP_SEG <= seg_out;
+
+    -- Controle de anodos (3 displays: unidade, dezena, minuto) - lógica ativa baixa
+    process(mux_sel)
+    begin
+        case mux_sel is
+            when 0 => DISP_SEL <= "110";  -- Habilita 1º display
+            when 1 => DISP_SEL <= "101";  -- Habilita 2º display
+            when 2 => DISP_SEL <= "011";  -- Habilita 3º display
+            when others => DISP_SEL <= "111"; -- Nenhum ativo
         end case;
     end process;
 
