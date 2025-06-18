@@ -16,12 +16,12 @@ O cronômetro possui:
 
 ## ✅ Estrutura de Arquivos
 
-| Arquivo             | Função                                  |
-|---------------------|-----------------------------------------|
-| `cronometro.vhd`    | Código fonte do cronômetro             |
-| `tb_cronometro.vhd` | Testbench para simulação               |
-| `cronometro.qsf`    | Mapeamento de pinos (Pin Assignments)  |
-| `cronometro.sdc`    | Restrições de tempo (Clock Constraint) |
+| Arquivo | Função |
+|---|---|
+| `cronometro.vhd` | Código fonte do cronômetro |
+| `tb_cronometro.vhd` | Testbench para simulação |
+| `cronometro.qsf` | Mapeamento de pinos (Pin Assignments) |
+| `cronometro.sdc` | Restrições de tempo (Clock Constraint) |
 
 ---
 
@@ -42,5 +42,81 @@ O cronômetro possui:
 
 ### 2) Adicionando os Arquivos VHDL
 
-1. **File → New → VHDL File → OK**.
-2. C
+1. Vá em: **File → New → VHDL File → OK**.
+2. Copie o código de `cronometro.vhd` e salve.
+3. Se for simular, crie também o arquivo `tb_cronometro.vhd` com o testbench.
+
+Depois vá em:  
+**Assignments → Settings → Files**  
+E confirme se os arquivos aparecem listados.
+
+---
+
+### 3) Inserindo o Arquivo `.sdc`
+
+1. Copie o arquivo `cronometro.sdc` para a pasta do projeto.
+2. No Quartus:  
+**Assignments → Settings → Timing Analysis Settings → Add**  
+Adicione o `.sdc`.
+
+---
+
+### 4) Primeira Compilação Rápida (Para carregar as portas no Pin Planner)
+
+1. Vá em: **Processing → Start Compilation**.
+2. Mesmo que dê erro de pinos, deixe compilar até o fim.
+
+---
+
+### 5) Mapeamento de Pinos (Pin Planner)
+
+1. Vá em: **Assignments → Pin Planner**.
+2. Insira o seguinte mapeamento:
+
+| Sinal | Pino |
+|---|---|
+| CLK | E1 |
+| RESET | N13 |
+| START_STOP | M15 |
+| DISP_SEG[0] | R14 |
+| DISP_SEG[1] | N16 |
+| DISP_SEG[2] | P16 |
+| DISP_SEG[3] | T15 |
+| DISP_SEG[4] | P15 |
+| DISP_SEG[5] | N12 |
+| DISP_SEG[6] | N15 |
+| DISP_SEG[7] | R16 |
+| DISP_SEL[0] | N9 |
+| DISP_SEL[1] | P9 |
+| DISP_SEL[2] | M10 |
+
+> ⚠️ **Importante:** Para todos os pinos, selecione o padrão de I/O:  
+**3.3-V LVCMOS**
+
+Depois **salve o Pin Planner**.
+
+---
+
+### 6) Compilar Novamente
+
+- **Processing → Start Compilation**
+
+Agora os erros de pinos vão sumir.
+
+---
+
+### 7) Simulação no ModelSim (Opcional)
+
+Se quiser simular:
+
+1. Compile o código e o Testbench no ModelSim.
+
+Exemplo de comandos no terminal ModelSim:
+
+```bash
+vcom cronometro.vhd
+vcom tb_cronometro.vhd
+vsim work.tb_cronometro
+add wave *
+run 1000 us
+
